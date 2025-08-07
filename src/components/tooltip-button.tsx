@@ -25,7 +25,7 @@ interface TooltipButtonProps {
   buttonVariant?: ButtonVariant;
   buttonClassName?: string;
   delay?: number;
-  disbaled?: boolean;
+  disabled?: boolean; // <-- CORRECTED
   loading?: boolean;
 }
 
@@ -36,18 +36,18 @@ export const TooltipButton = ({
   buttonVariant = "ghost",
   buttonClassName = "",
   delay = 0,
-  disbaled = false,
+  disabled = false, // <-- CORRECTED
   loading = false,
 }: TooltipButtonProps) => {
   return (
     <TooltipProvider delayDuration={delay}>
       <Tooltip>
         <TooltipTrigger
-          className={disbaled ? "cursor-not-allowed" : "cursor-pointer"}
+          className={disabled ? "cursor-not-allowed" : "cursor-pointer"} // <-- CORRECTED
         >
           <Button
             size={"icon"}
-            disabled={disbaled}
+            disabled={disabled} // <-- CORRECTED
             variant={buttonVariant}
             className={buttonClassName}
             onClick={onClick}

@@ -1,11 +1,13 @@
+// main.tsx
+
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-
 import { ClerkProvider } from "@clerk/clerk-react";
 
 import "./index.css";
 import App from "./App.tsx";
 import { ToasterProvider } from "./provider/toast-provider.tsx";
+import { WebcamProvider } from "./context/WebcamContext.tsx"; // 1. IMPORT THE PROVIDER HERE
 
 // Import your Publishable Key
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -17,8 +19,11 @@ if (!PUBLISHABLE_KEY) {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
-      <App />
-      <ToasterProvider />
+      {/* 2. WRAP YOUR APP COMPONENT WITH THE WEBCAM PROVIDER */}
+      <WebcamProvider>
+        <App />
+        <ToasterProvider />
+      </WebcamProvider>
     </ClerkProvider>
   </StrictMode>
 );

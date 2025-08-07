@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import { ResultType } from "react-hook-speech-to-text"
 import { useAuth } from "@clerk/clerk-react";
 import {
   CircleStop,
@@ -10,46 +11,44 @@ import {
   VideoOff,
   WebcamIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import useSpeechToText, { ResultType } from "react-hook-speech-to-text";
+import { Dispatch, SetStateAction, useEffect, useState } from "react"; // 1. Import new types
+import useSpeechToText from "react-hook-speech-to-text";
 import { useParams } from "react-router-dom";
 import WebCam from "react-webcam";
 import { TooltipButton } from "./tooltip-button";
 import { toast } from "sonner";
 import { chatSession } from "@/scripts";
 import { SaveModal } from "./save-modal";
-import {
-  addDoc,
-  collection,
-  getDocs,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/config/firebase.config";
+import { Question } from "@/types"; // Import your Question type
 
+// 2. UPDATE THE PROPS INTERFACE
 interface RecordAnswerProps {
-  question: { question: string; answer: string };
-  isWebCam: boolean;
-  setIsWebCam: (value: boolean) => void;
+  questions: Question[];
+  isWebCamEnabled: boolean;
+  setIsWebCamEnabled: Dispatch<SetStateAction<boolean>>;
+  interviewId: string;
 }
 
 interface AIResponse {
-  ratings: number;
+  rating: number; // Changed to rating to match your AI prompt better
   feedback: string;
 }
 
+// 3. UPDATE THE COMPONENT SIGNATURE to use the new props
 export const RecordAnswer = ({
-  question,
-  isWebCam,
-  setIsWebCam,
+  questions,
+  isWebCamEnabled,
+  setIsWebCamEnabled,
+  interviewId,
 }: RecordAnswerProps) => {
   const {
-    interimResult,
     isRecording,
     results,
     startSpeechToText,
     stopSpeechToText,
+    setResults,
   } = useSpeechToText({
     continuous: true,
     useLegacyResults: false,
@@ -60,156 +59,114 @@ export const RecordAnswer = ({
   const [aiResult, setAiResult] = useState<AIResponse | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  // 4. ADD STATE to track the current question
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
 
   const { userId } = useAuth();
-  const { interviewId } = useParams();
 
   const recordUserAnswer = async () => {
     if (isRecording) {
       stopSpeechToText();
-
-      if (userAnswer?.length < 30) {
-        toast.error("Error", {
-          description: "Your answer should be more than 30 characters",
-        });
-
-        return;
-      }
-
-      //   ai result
-      const aiResult = await generateResult(
-        question.question,
-        question.answer,
-        userAnswer
-      );
-
-      setAiResult(aiResult);
     } else {
       startSpeechToText();
     }
   };
 
-  const cleanJsonResponse = (responseText: string) => {
-    // Step 1: Trim any surrounding whitespace
-    let cleanText = responseText.trim();
-
-    // Step 2: Remove any occurrences of "json" or code block symbols (``` or `)
-    cleanText = cleanText.replace(/(json|```|`)/g, "");
-
-    // Step 3: Parse the clean JSON text into an array of objects
+  const cleanJsonResponse = (responseText: string): AIResponse => {
+    const cleanText = responseText.replace(/```json|```/g, "").trim();
     try {
       return JSON.parse(cleanText);
     } catch (error) {
-      throw new Error("Invalid JSON format: " + (error as Error)?.message);
+      console.error("Failed to parse AI response:", error);
+      throw new Error("Invalid JSON format from AI.");
     }
   };
 
-  const generateResult = async (
-    qst: string,
-    qstAns: string,
-    userAns: string
-  ): Promise<AIResponse> => {
+  const generateResult = async () => {
+    if (userAnswer.length < 10) {
+      toast.error("Your answer is too short. Please provide more detail.");
+      return;
+    }
+
     setIsAiGenerating(true);
+    const currentQuestion = questions[activeQuestionIndex];
     const prompt = `
-      Question: "${qst}"
-      User Answer: "${userAns}"
-      Correct Answer: "${qstAns}"
-      Please compare the user's answer to the correct answer, and provide a rating (from 1 to 10) based on answer quality, and offer feedback for improvement.
-      Return the result in JSON format with the fields "ratings" (number) and "feedback" (string).
+      Question: "${currentQuestion.question}"
+      User Answer: "${userAnswer}"
+      Correct Answer: "${currentQuestion.answer}"
+      Please provide a rating (from 1 to 10) for the user's answer and offer constructive feedback for improvement.
+      Return the result in JSON format with two fields: "rating" (a number) and "feedback" (a string).
     `;
 
     try {
-      const aiResult = await chatSession.sendMessage(prompt);
-
-      const parsedResult: AIResponse = cleanJsonResponse(
-        aiResult.response.text()
-      );
-      return parsedResult;
+      const result = await chatSession.sendMessage(prompt);
+      const parsedResult = cleanJsonResponse(result.response.text());
+      setAiResult(parsedResult);
     } catch (error) {
-      console.log(error);
-      toast("Error", {
-        description: "An error occurred while generating feedback.",
-      });
-      return { ratings: 0, feedback: "Unable to generate feedback" };
+      toast.error("An error occurred while generating feedback.");
     } finally {
       setIsAiGenerating(false);
     }
   };
-
-  const recordNewAnswer = () => {
-    setUserAnswer("");
-    stopSpeechToText();
-    startSpeechToText();
-  };
+  
+  // This useEffect will now trigger the AI generation when recording stops
+  useEffect(() => {
+    if (!isRecording && userAnswer.length > 0) {
+        generateResult();
+    }
+  }, [userAnswer, isRecording]);
 
   const saveUserAnswer = async () => {
     setLoading(true);
 
-    if (!aiResult) {
-      return;
-    }
-
-    const currentQuestion = question.question;
+    if (!aiResult) return;
+    
+    const currentQuestion = questions[activeQuestionIndex];
+    
     try {
-      // query the firbase to check if the user answer already exists for this question
+      await addDoc(collection(db, "userAnswers"), {
+        mockIdRef: interviewId,
+        question: currentQuestion.question,
+        correct_ans: currentQuestion.answer,
+        user_ans: userAnswer,
+        feedback: aiResult.feedback,
+        rating: aiResult.rating,
+        userId,
+        createdAt: serverTimestamp(),
+      });
+      toast.success("Your answer has been saved!");
+      
+      // Clear state for next question
+      setResults([]);
+      setUserAnswer("");
+      setAiResult(null);
 
-      const userAnswerQuery = query(
-        collection(db, "userAnswers"),
-        where("userId", "==", userId),
-        where("question", "==", currentQuestion)
-      );
-
-      const querySnap = await getDocs(userAnswerQuery);
-
-      // if the user already answerd the question dont save it again
-      if (!querySnap.empty) {
-        console.log("Query Snap Size", querySnap.size);
-        toast.info("Already Answered", {
-          description: "You have already answered this question",
-        });
-        return;
+      // Move to next question or end interview
+      if (activeQuestionIndex < questions.length - 1) {
+        setActiveQuestionIndex(activeQuestionIndex + 1);
       } else {
-        // save the user answer
-
-        await addDoc(collection(db, "userAnswers"), {
-          mockIdRef: interviewId,
-          question: question.question,
-          correct_ans: question.answer,
-          user_ans: userAnswer,
-          feedback: aiResult.feedback,
-          rating: aiResult.ratings,
-          userId,
-          createdAt: serverTimestamp(),
-        });
-
-        toast("Saved", { description: "Your answer has been saved.." });
+        // Navigate to feedback page after the last question is saved
+        window.location.href = `/generate/feedback/${interviewId}`;
       }
 
-      setUserAnswer("");
-      stopSpeechToText();
     } catch (error) {
-      toast("Error", {
-        description: "An error occurred while generating feedback.",
-      });
-      console.log(error);
+      toast.error("An error occurred while saving your answer.");
     } finally {
       setLoading(false);
-      setOpen(!open);
+      setOpen(false);
     }
   };
 
-  useEffect(() => {
-    const combineTranscripts = results
-      .filter((result): result is ResultType => typeof result !== "string")
-      .map((result) => result.transcript)
-      .join(" ");
+useEffect(() => {
+  const combinedTranscript = results
+    .filter((result): result is ResultType => typeof result !== "string") // Add this filter
+    .map((result) => result.transcript)
+    .join(" ");
 
-    setUserAnswer(combineTranscripts);
-  }, [results]);
-
+  setUserAnswer(combinedTranscript);
+}, [results]);
   return (
     <div className="w-full flex flex-col items-center gap-8 mt-4">
-      {/* save modal */}
       <SaveModal
         isOpen={open}
         onClose={() => setOpen(false)}
@@ -217,11 +174,11 @@ export const RecordAnswer = ({
         loading={loading}
       />
 
-      <div className="w-full h-[400px] md:w-96 flex flex-col items-center justify-center border p-4 bg-gray-50 rounded-md">
-        {isWebCam ? (
+      <div className="w-full h-[300px] md:h-80 flex flex-col items-center justify-center border p-4 bg-gray-50 rounded-md">
+        {/* 5. USE THE CORRECT PROP `isWebCamEnabled` */}
+        {isWebCamEnabled ? (
           <WebCam
-            onUserMedia={() => setIsWebCam(true)}
-            onUserMediaError={() => setIsWebCam(false)}
+            mirrored={true}
             className="w-full h-full object-cover rounded-md"
           />
         ) : (
@@ -229,65 +186,42 @@ export const RecordAnswer = ({
         )}
       </div>
 
-      <div className="flex itece justify-center gap-3">
+      <div className="flex items-center justify-center gap-3">
         <TooltipButton
-          content={isWebCam ? "Turn Off" : "Turn On"}
-          icon={
-            isWebCam ? (
-              <VideoOff className="min-w-5 min-h-5" />
-            ) : (
-              <Video className="min-w-5 min-h-5" />
-            )
-          }
-          onClick={() => setIsWebCam(!isWebCam)}
+          content={isWebCamEnabled ? "Turn Off" : "Turn On"}
+          icon={isWebCamEnabled ? <VideoOff /> : <Video />}
+          onClick={() => setIsWebCamEnabled(!isWebCamEnabled)} // Use the setter from props
         />
 
         <TooltipButton
           content={isRecording ? "Stop Recording" : "Start Recording"}
-          icon={
-            isRecording ? (
-              <CircleStop className="min-w-5 min-h-5" />
-            ) : (
-              <Mic className="min-w-5 min-h-5" />
-            )
-          }
+          icon={isRecording ? <CircleStop /> : <Mic />}
           onClick={recordUserAnswer}
+          disabled={isAiGenerating}
         />
 
         <TooltipButton
-          content="Record Again"
-          icon={<RefreshCw className="min-w-5 min-h-5" />}
-          onClick={recordNewAnswer}
-        />
-
-        <TooltipButton
-          content="Save Result"
-          icon={
-            isAiGenerating ? (
-              <Loader className="min-w-5 min-h-5 animate-spin" />
-            ) : (
-              <Save className="min-w-5 min-h-5" />
-            )
-          }
-          onClick={() => setOpen(!open)}
-          disbaled={!aiResult}
+          content="Save Answer"
+          icon={isAiGenerating ? <Loader className="animate-spin" /> : <Save />}
+          onClick={() => setOpen(true)}
+          disabled={!aiResult} // 6. FIXED TYPO `disbaled` -> `disabled`
         />
       </div>
 
       <div className="w-full mt-4 p-4 border rounded-md bg-gray-50">
         <h2 className="text-lg font-semibold">Your Answer:</h2>
-
         <p className="text-sm mt-2 text-gray-700 whitespace-normal">
-          {userAnswer || "Start recording to see your ansewer here"}
+          {userAnswer || "Your recorded answer will appear here."}
         </p>
-
-        {interimResult && (
-          <p className="text-sm text-gray-500 mt-2">
-            <strong>Current Speech:</strong>
-            {interimResult}
-          </p>
-        )}
       </div>
+      
+      {aiResult && (
+        <div className="w-full mt-2 p-4 border rounded-md bg-blue-50">
+            <h2 className="text-lg font-semibold">Feedback</h2>
+            <p><strong className="text-blue-700">Rating:</strong> {aiResult.rating}/10</p>
+            <p className="mt-2"><strong className="text-blue-700">Notes:</strong> {aiResult.feedback}</p>
+        </div>
+      )}
     </div>
   );
 };

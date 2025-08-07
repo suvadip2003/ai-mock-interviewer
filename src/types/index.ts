@@ -33,3 +33,8 @@ export interface UserAnswer {
   createdAt: Timestamp;
   updateAt: Timestamp;
 }
+
+export interface Question {
+  question: string;
+  answer: string;
+}

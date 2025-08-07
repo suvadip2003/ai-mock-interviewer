@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Interview } from "@/types";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react"; // 1. Import useContext
 import { useNavigate, useParams } from "react-router-dom";
 import { LoaderPage } from "./loader-page";
 import { doc, getDoc } from "firebase/firestore";
@@ -10,14 +10,16 @@ import { CustomBreadCrumb } from "@/components/custom-bread-crumb";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Lightbulb } from "lucide-react";
 import { QuestionSection } from "@/components/question-section";
+import { WebcamContext } from "@/context/WebcamContext"; // 2. Import your WebcamContext
 
 export const MockInterviewPage = () => {
   const { interviewId } = useParams<{ interviewId: string }>();
   const [interview, setInterview] = useState<Interview | null>(null);
-
   const [isLoading, setIsLoading] = useState(false);
-
   const navigate = useNavigate();
+
+  // 3. Get the shared state and setter from the context
+  const { isWebCamEnabled, setIsWebCamEnabled } = useContext(WebcamContext);
 
   useEffect(() => {
     setIsLoading(true);
@@ -90,7 +92,13 @@ export const MockInterviewPage = () => {
 
       {interview?.questions && interview?.questions.length > 0 && (
         <div className="mt-4 w-full flex flex-col items-start gap-4">
-          <QuestionSection questions={interview?.questions} />
+          {/* 4. Pass the shared state down to the QuestionSection component */}
+          <QuestionSection
+            questions={interview?.questions}
+            isWebCamEnabled={isWebCamEnabled}
+            setIsWebCamEnabled={setIsWebCamEnabled}
+            interviewId={interviewId!}
+          />
         </div>
       )}
     </div>

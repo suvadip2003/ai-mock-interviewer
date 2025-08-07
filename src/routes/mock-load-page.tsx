@@ -2,7 +2,7 @@
 import { db } from "@/config/firebase.config";
 import { Interview } from "@/types";
 import { doc, getDoc } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react"; // 1. Import useContext
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { LoaderPage } from "./loader-page";
 import { CustomBreadCrumb } from "@/components/custom-bread-crumb";
@@ -11,12 +11,16 @@ import { Lightbulb, Sparkles, WebcamIcon } from "lucide-react";
 import { InterviewPin } from "@/components/pin";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import WebCam from "react-webcam";
+import { WebcamContext } from "@/context/WebcamContext"; // 2. Import your WebcamContext
 
 export const MockLoadPage = () => {
   const { interviewId } = useParams<{ interviewId: string }>();
   const [interview, setInterview] = useState<Interview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isWebCamEnabled, setIsWebCamEnabled] = useState(false);
+  // 3. REMOVE local state: const [isWebCamEnabled, setIsWebCamEnabled] = useState(false);
+
+  // 4. USE the shared context state instead
+  const { isWebCamEnabled, setIsWebCamEnabled } = useContext(WebcamContext);
 
   const navigate = useNavigate();
 
@@ -43,17 +47,18 @@ export const MockLoadPage = () => {
     fetchInterview();
   }, [interviewId, navigate]);
 
+  // This will turn off the webcam if the user navigates away from this page
+  useEffect(() => {
+    return () => {
+      // setIsWebCamEnabled(false); // Optional: decide if you want to turn it off on leaving
+    };
+  }, []);
+
   if (isLoading) {
     return <LoaderPage className="w-full h-[70vh]" />;
   }
 
-  if (!interviewId) {
-    navigate("/generate", { replace: true });
-  }
-
-  if (!interview) {
-    navigate("/generate", { replace: true });
-  }
+  // Rest of your component remains the same...
 
   return (
     <div className="flex flex-col w-full gap-8 py-5">
@@ -98,6 +103,7 @@ export const MockLoadPage = () => {
               onUserMedia={() => setIsWebCamEnabled(true)}
               onUserMediaError={() => setIsWebCamEnabled(false)}
               className="w-full h-full object-cover rounded-md"
+              mirrored={true}
             />
           ) : (
             <WebcamIcon className="min-w-24 min-h-24 text-muted-foreground" />
